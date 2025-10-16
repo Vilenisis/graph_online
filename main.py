@@ -179,6 +179,10 @@ class GraphApp:
         self.expr_entry.bind("<KP_Enter>", lambda _event: "break")
         self._bind_edit_shortcuts(self.expr_entry)
         self._set_expression("")
+        expr_entry = tk.Entry(control_frame, textvariable=self.expression_var, width=40, undo=True)
+        expr_entry.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 6))
+        expr_entry.bind("<FocusOut>", lambda _event: self.update_parameters())
+        self._bind_edit_shortcuts(expr_entry)
 
         parse_btn = ttk.Button(control_frame, text="Обновить параметры", command=self.update_parameters)
         parse_btn.grid(row=1, column=2, padx=(6, 0))
