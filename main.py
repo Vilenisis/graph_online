@@ -127,7 +127,6 @@ class GraphApp:
         self.curves: List[CurveDefinition] = []
 
         # Tk variables used across controls
-        self.expression_var = tk.StringVar()
         self.label_var = tk.StringVar()
         self.xmin_var = tk.DoubleVar(value=-10.0)
         self.xmax_var = tk.DoubleVar(value=10.0)
@@ -173,6 +172,13 @@ class GraphApp:
         expr_label = ttk.Label(control_frame, text="Формула (используйте x):")
         expr_label.grid(row=0, column=0, sticky="w")
 
+        self.expr_entry = tk.Text(control_frame, width=40, height=1, undo=True, wrap="none")
+        self.expr_entry.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 6))
+        self.expr_entry.bind("<FocusOut>", lambda _event: self.update_parameters())
+        self.expr_entry.bind("<Return>", lambda _event: "break")
+        self.expr_entry.bind("<KP_Enter>", lambda _event: "break")
+        self._bind_edit_shortcuts(self.expr_entry)
+        self._set_expression("")
         expr_entry = tk.Entry(control_frame, textvariable=self.expression_var, width=40, undo=True)
         expr_entry.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 6))
         expr_entry.bind("<FocusOut>", lambda _event: self.update_parameters())
@@ -305,6 +311,20 @@ class GraphApp:
             sequence = f"<{modifier}-Shift-Z>"
             widget.bind(sequence, lambda event: widget.event_generate("<<Redo>>"))
 
+    def _get_expression(self) -> str:
+        """Return the current expression text from the input widget."""
+
+        return self.expr_entry.get("1.0", "end-1c")
+
+    def _set_expression(self, value: str) -> None:
+        """Update the expression input with *value* and reset undo history."""
+
+        self.expr_entry.delete("1.0", "end")
+        self.expr_entry.insert("1.0", value)
+        # Reset undo stack so programmatic changes do not pollute user history.
+        self.expr_entry.edit_reset()
+        self.expr_entry.edit_modified(False)
+
     # ------------------------------------------------------------------
     # Parameter management
     # ------------------------------------------------------------------
@@ -327,7 +347,7 @@ class GraphApp:
     def update_parameters(self, preset_values: Optional[Dict[str, float]] = None) -> None:
         """Regenerate parameter fields based on the current expression."""
 
-        expression = self.expression_var.get()
+        expression = self._get_expression()
         parameters = self.detect_parameters(expression)
 
         # Destroy old widgets
@@ -365,7 +385,7 @@ class GraphApp:
         return params
 
     def _create_curve_from_inputs(self) -> Optional[CurveDefinition]:
-        expression = self.expression_var.get().strip()
+        expression = self._get_expression().strip()
         if not expression:
             messagebox.showwarning("Предупреждение", "Введите формулу для построения графика")
             return None
@@ -444,7 +464,7 @@ class GraphApp:
         if not selection:
             return
         curve = self.curves[selection[0]]
-        self.expression_var.set(curve.expression)
+        self._set_expression(curve.expression)
         self.label_var.set(curve.label)
         self.xmin_var.set(curve.x_min)
         self.xmax_var.set(curve.x_max)
