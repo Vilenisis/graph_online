@@ -137,6 +137,8 @@ class GraphApp:
         self.logy_var = tk.BooleanVar(value=False)
         self.cursor_var = tk.BooleanVar(value=True)
         self.color_var = tk.StringVar(value=self.DEFAULT_COLOR)
+        self.axis_x_color_var = tk.StringVar(value="#333333")
+        self.axis_y_color_var = tk.StringVar(value="#333333")
         self.cursor_var.trace_add("write", lambda *_: self._toggle_cursor())
 
         self.param_vars: Dict[str, tk.DoubleVar] = {}
@@ -150,6 +152,9 @@ class GraphApp:
         self.cursor_vline = None
         self.cursor_text = None
         self._connect_cursor_events()
+
+        # Draw initial axes even when there are no curves yet.
+        self.replot_all()
 
     # ------------------------------------------------------------------
     # UI construction helpers
@@ -168,9 +173,10 @@ class GraphApp:
         expr_label = ttk.Label(control_frame, text="Формула (используйте x):")
         expr_label.grid(row=0, column=0, sticky="w")
 
-        expr_entry = ttk.Entry(control_frame, textvariable=self.expression_var, width=40)
+        expr_entry = tk.Entry(control_frame, textvariable=self.expression_var, width=40, undo=True)
         expr_entry.grid(row=1, column=0, columnspan=2, sticky="we", pady=(0, 6))
         expr_entry.bind("<FocusOut>", lambda _event: self.update_parameters())
+        self._bind_edit_shortcuts(expr_entry)
 
         parse_btn = ttk.Button(control_frame, text="Обновить параметры", command=self.update_parameters)
         parse_btn.grid(row=1, column=2, padx=(6, 0))
@@ -217,9 +223,26 @@ class GraphApp:
         color_row = ttk.Frame(appearance)
         color_row.grid(row=4, column=0, pady=6, sticky="we")
         ttk.Label(color_row, text="Цвет графика:").pack(side=tk.LEFT)
-        self.color_preview = ttk.Label(color_row, text="      ", background=self.color_var.get(), relief=tk.SUNKEN)
+        self.color_preview = tk.Label(color_row, text="      ", bg=self.color_var.get(), relief=tk.SUNKEN)
         self.color_preview.pack(side=tk.LEFT, padx=4)
         ttk.Button(color_row, text="Выбрать", command=self.choose_color).pack(side=tk.LEFT)
+
+        axis_color_row = ttk.Frame(appearance)
+        axis_color_row.grid(row=5, column=0, sticky="we")
+
+        x_axis_row = ttk.Frame(axis_color_row)
+        x_axis_row.pack(fill=tk.X, pady=2)
+        ttk.Label(x_axis_row, text="Цвет оси X:").pack(side=tk.LEFT)
+        self.axis_x_color_preview = tk.Label(x_axis_row, text="      ", bg=self.axis_x_color_var.get(), relief=tk.SUNKEN)
+        self.axis_x_color_preview.pack(side=tk.LEFT, padx=4)
+        ttk.Button(x_axis_row, text="Выбрать", command=lambda: self.choose_axis_color("x")).pack(side=tk.LEFT)
+
+        y_axis_row = ttk.Frame(axis_color_row)
+        y_axis_row.pack(fill=tk.X, pady=2)
+        ttk.Label(y_axis_row, text="Цвет оси Y:").pack(side=tk.LEFT)
+        self.axis_y_color_preview = tk.Label(y_axis_row, text="      ", bg=self.axis_y_color_var.get(), relief=tk.SUNKEN)
+        self.axis_y_color_preview.pack(side=tk.LEFT, padx=4)
+        ttk.Button(y_axis_row, text="Выбрать", command=lambda: self.choose_axis_color("y")).pack(side=tk.LEFT)
 
         # --- Curve management
         curve_frame = ttk.LabelFrame(control_frame, text="Графики")
@@ -259,6 +282,28 @@ class GraphApp:
         toolbar = NavigationToolbar2Tk(self.canvas, self.plot_container)
         toolbar.update()
         toolbar.pack(side=tk.BOTTOM, fill=tk.X)
+
+    def _bind_edit_shortcuts(self, widget: tk.Widget) -> None:
+        """Enable standard clipboard and undo/redo shortcuts for the widget."""
+
+        bindings = {
+            "c": "<<Copy>>",
+            "x": "<<Cut>>",
+            "v": "<<Paste>>",
+            "a": "<<SelectAll>>",
+            "z": "<<Undo>>",
+            "y": "<<Redo>>",
+        }
+
+        for key, virtual_event in bindings.items():
+            for modifier in ("Control", "Command"):
+                sequence = f"<{modifier}-{key}>"
+                widget.bind(sequence, lambda event, ev=virtual_event: widget.event_generate(ev))
+
+        # Support redo via Shift+Z as commonly used on macOS applications.
+        for modifier in ("Control", "Command"):
+            sequence = f"<{modifier}-Shift-Z>"
+            widget.bind(sequence, lambda event: widget.event_generate("<<Redo>>"))
 
     # ------------------------------------------------------------------
     # Parameter management
@@ -405,7 +450,7 @@ class GraphApp:
         self.xmax_var.set(curve.x_max)
         self.samples_var.set(curve.samples)
         self.color_var.set(curve.color)
-        self.color_preview.configure(background=curve.color)
+        self.color_preview.configure(bg=curve.color)
         self.update_parameters(curve.parameters)
 
     # ------------------------------------------------------------------
@@ -413,6 +458,9 @@ class GraphApp:
     # ------------------------------------------------------------------
     def replot_all(self) -> None:
         self.axes.clear()
+
+        x_axis_color = self.axis_x_color_var.get()
+        y_axis_color = self.axis_y_color_var.get()
 
         if self.logx_var.get():
             self.axes.set_xscale("log")
@@ -457,8 +505,24 @@ class GraphApp:
         if self.curves:
             self.axes.legend()
 
-        self.axes.set_xlabel("x")
-        self.axes.set_ylabel("f(x)")
+        self.axes.set_xlabel("x", color=x_axis_color)
+        self.axes.set_ylabel("f(x)", color=y_axis_color)
+
+        self.axes.tick_params(axis="x", colors=x_axis_color)
+        self.axes.tick_params(axis="y", colors=y_axis_color)
+
+        for spine_name in ("bottom", "top"):
+            if spine_name in self.axes.spines:
+                self.axes.spines[spine_name].set_color(x_axis_color)
+        for spine_name in ("left", "right"):
+            if spine_name in self.axes.spines:
+                self.axes.spines[spine_name].set_color(y_axis_color)
+
+        if not self.logy_var.get():
+            self.axes.axhline(0, color=x_axis_color, linewidth=1.2, alpha=0.8, label="_nolegend_")
+        if not self.logx_var.get():
+            self.axes.axvline(0, color=y_axis_color, linewidth=1.2, alpha=0.8, label="_nolegend_")
+
         self.canvas.draw_idle()
 
     # ------------------------------------------------------------------
@@ -515,7 +579,32 @@ class GraphApp:
         color = colorchooser.askcolor(initialcolor=self.color_var.get(), title="Выбор цвета графика")
         if color and color[1]:
             self.color_var.set(color[1])
-            self.color_preview.configure(background=color[1])
+            self.color_preview.configure(bg=color[1])
+            self._apply_color_to_selected_curve()
+
+    def choose_axis_color(self, axis: str) -> None:
+        if axis == "x":
+            var = self.axis_x_color_var
+            preview = self.axis_x_color_preview
+            title = "Выбор цвета оси X"
+        else:
+            var = self.axis_y_color_var
+            preview = self.axis_y_color_preview
+            title = "Выбор цвета оси Y"
+
+        color = colorchooser.askcolor(initialcolor=var.get(), title=title)
+        if color and color[1]:
+            var.set(color[1])
+            preview.configure(bg=color[1])
+            self.replot_all()
+
+    def _apply_color_to_selected_curve(self) -> None:
+        selection = self.curve_list.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        self.curves[index].color = self.color_var.get()
+        self.replot_all()
 
     def save_figure(self) -> None:
         if not self.curves:
